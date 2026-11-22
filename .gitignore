@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 .conda/
-
+.envrc
 .ipynb_checkpoints/
 
 Plants_2/
@@ -34,3 +34,5 @@ logs/
 Thumbs.db
 .vscode/
 .idea
+
+saved_model_tmp/

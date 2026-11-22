@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH --account=curso04
+#SBATCH --nodes=1
+#SBATCH --job-name=plantas
+#SBATCH --ntasks=1
+#SBATCH --time=3:00:00
+#SBATCH --partition=cpu
+
+echo "Redes Neuronales"
+source activate entorno
+python main.py

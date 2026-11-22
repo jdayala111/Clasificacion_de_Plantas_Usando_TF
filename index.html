@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Clasificador de Hojas</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: #f1f5f9;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .app-shell {
+      max-width: 460px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background-color: #ffffff;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+    .tab-active {
+      color: #059669;
+      border-top: 2px solid #059669;
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased">
+  <div class="app-shell flex flex-col justify-between relative pb-20">
+    <!-- Header -->
+    <header class="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center gap-2.5">
+      <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+        <i data-lucide="leaf" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold leading-tight text-slate-900">Clasificador de Hojas</h1>
+        <p class="text-[11px] text-slate-500">22 especies y estados</p>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-4 space-y-4">
+      <!-- Toast Notification -->
+      <div id="toast" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-30 max-w-[420px] w-[90%] px-4 py-2.5 rounded-xl shadow-lg text-xs font-medium text-white bg-slate-900 text-center"></div>
+
+      <!-- TAB 1: CLASIFICAR -->
+      <section id="view-classify" class="space-y-4">
+        <!-- Camera / Preview Box -->
+        <div class="relative w-full aspect-square rounded-2xl bg-slate-900 overflow-hidden border border-slate-200 flex items-center justify-center">
+          <video id="cameraStream" class="hidden w-full h-full object-cover" autoplay playsinline muted></video>
+          <img id="previewImage" class="hidden w-full h-full object-cover" alt="Vista previa de hoja" />
+          <canvas id="captureCanvas" class="hidden"></canvas>
+
+          <div id="emptyState" class="text-center p-6 text-slate-300 space-y-2">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-slate-800 flex items-center justify-center text-emerald-400">
+              <i data-lucide="camera" class="w-7 h-7"></i>
+            </div>
+            <p class="text-sm font-medium text-white">Toma o sube una foto de la hoja</p>
+          </div>
+
+          <!-- Live Camera Controls Overlay -->
+          <div id="cameraOverlay" class="hidden absolute bottom-3 inset-x-3 flex items-center justify-center gap-3">
+            <button id="btnCaptureFrame" type="button" class="px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-lg flex items-center gap-2">
+              <i data-lucide="aperture" class="w-4 h-4"></i>
+              Capturar
+            </button>
+            <button id="btnStopCamera" type="button" class="p-2.5 rounded-full bg-slate-800/80 text-white hover:bg-slate-700" aria-label="Cerrar cámara">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Primary Action Buttons -->
+        <div class="grid grid-cols-2 gap-3">
+          <button id="btnStartCamera" type="button" class="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition">
+            <i data-lucide="video" class="w-4 h-4"></i>
+            Abrir cámara
+          </button>
+
+          <label for="fileInput" class="cursor-pointer py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-[0.99] text-slate-800 font-semibold text-sm flex items-center justify-center gap-2 transition">
+            <i data-lucide="image-plus" class="w-4 h-4"></i>
+            Subir foto
+            <input id="fileInput" type="file" accept="image/*" capture="environment" class="hidden" />
+          </label>
+        </div>
+
+        <!-- Prediction Result Card -->
+        <div id="resultCard" class="hidden rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <span id="healthBadge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold mb-1.5"></span>
+              <h2 id="topSpecies" class="text-lg font-bold text-slate-900 leading-snug"></h2>
+              <p id="topCode" class="text-xs text-slate-500"></p>
+            </div>
+            <div class="text-right">
+              <span id="topConfidence" class="text-2xl font-bold text-emerald-600"></span>
+              <p class="text-[11px] text-slate-500">Confianza</p>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-200 space-y-2">
+            <p class="text-xs font-semibold text-slate-600">Top 3 predicciones</p>
+            <div id="top3List" class="space-y-2"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: ESPECIES E HISTORIAL -->
+      <section id="view-classes" class="hidden space-y-4">
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h2 class="text-base font-bold text-slate-900">Historial reciente</h2>
+            <button id="btnClearHistory" type="button" class="text-xs text-slate-500 hover:text-red-600">Limpiar</button>
+          </div>
+          <div id="historyList" class="space-y-2">
+            <p class="text-xs text-slate-400 italic">Aún no hay clasificaciones en esta sesión.</p>
+          </div>
+        </div>
+
+        <div class="space-y-2 pt-2 border-t border-slate-200">
+          <div class="flex items-center justify-between">
+            <h2 class="text-base font-bold text-slate-900">22 Clases</h2>
+            <div class="flex gap-1">
+              <button type="button" data-filter="all" class="filter-btn px-2 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 text-white">Todas</button>
+              <button type="button" data-filter="healthy" class="filter-btn px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-600">Sanas</button>
+              <button type="button" data-filter="diseased" class="filter-btn px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-600">Enfermas</button>
+            </div>
+          </div>
+          <div id="classesList" class="grid grid-cols-1 gap-1.5"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[460px] bg-white border-t border-slate-200 grid grid-cols-2 z-20">
+      <button type="button" data-tab="classify" class="nav-btn tab-active py-2.5 flex flex-col items-center gap-1 text-[11px] font-semibold">
+        <i data-lucide="scan-line" class="w-5 h-5"></i>
+        <span>Clasificar</span>
+      </button>
+      <button type="button" data-tab="classes" class="nav-btn text-slate-500 py-2.5 flex flex-col items-center gap-1 text-[11px] font-medium">
+        <i data-lucide="list" class="w-5 h-5"></i>
+        <span>Clases</span>
+      </button>
+    </nav>
+  </div>
+
+  <script>
+    const CLASS_NAMES = [
+      'Alstonia Scholaris diseased (P2a)',
+      'Alstonia Scholaris healthy (P2b)',
+      'Arjun diseased (P1a)',
+      'Arjun healthy (P1b)',
+      'Bael diseased (P4b)',
+      'Basil healthy (P8)',
+      'Chinar diseased (P11b)',
+      'Chinar healthy (P11a)',
+      'Gauva diseased (P3b)',
+      'Gauva healthy (P3a)',
+      'Jamun diseased (P5b)',
+      'Jamun healthy (P5a)',
+      'Jatropha diseased (P6b)',
+      'Jatropha healthy (P6a)',
+      'Lemon diseased (P10b)',
+      'Lemon healthy (P10a)',
+      'Mango diseased (P0b)',
+      'Mango healthy (P0a)',
+      'Pomegranate diseased (P9b)',
+      'Pomegranate healthy (P9a)',
+      'Pongamia Pinnata diseased (P7b)',
+      'Pongamia Pinnata healthy (P7a)'
+    ];
+
+    let tfModel = null;
+    let modelLoadError = '';
+    let activeStream = null;
+    const historyItems = [];
+    let currentFilter = 'all';
+
+    // DOM Elements
+    const cameraStream = document.getElementById('cameraStream');
+    const previewImage = document.getElementById('previewImage');
+    const captureCanvas = document.getElementById('captureCanvas');
+    const emptyState = document.getElementById('emptyState');
+    const cameraOverlay = document.getElementById('cameraOverlay');
+    const resultCard = document.getElementById('resultCard');
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 3200);
+    }
+
+    function parseClassName(fullName) {
+      const isHealthy = fullName.toLowerCase().includes('healthy');
+      const codeMatch = fullName.match(/\(([^)]+)\)/);
+      const code = codeMatch ? codeMatch[1] : '';
+      const species = fullName.replace(/\s*(healthy|diseased)\s*\([^)]+\)/i, '').trim();
+      return { species, isHealthy, code, fullName };
+    }
+
+    // Load internal TensorFlow.js model automatically
+    async function loadInternalModel() {
+      modelLoadError = '';
+      try {
+        tfModel = await tf.loadLayersModel('./tfjs_model/model.json');
+      } catch (err1) {
+        try {
+          tfModel = await tf.loadGraphModel('./tfjs_model/model.json');
+        } catch (err2) {
+          tfModel = null;
+          modelLoadError = err2 && err2.message ? err2.message : 'No se pudo cargar ./tfjs_model/model.json';
+          console.error('Error cargando modelo:', err1, err2);
+        }
+      }
+    }
+
+    // Navigation Tabs
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.tab;
+        ['classify', 'classes'].forEach(v => {
+          document.getElementById(`view-${v}`).classList.toggle('hidden', v !== target);
+        });
+        document.querySelectorAll('.nav-btn').forEach(b => {
+          const active = b.dataset.tab === target;
+          b.classList.toggle('tab-active', active);
+          b.classList.toggle('text-slate-500', !active);
+          b.classList.toggle('font-semibold', active);
+        });
+      });
+    });
+
+    // Camera Controls
+    document.getElementById('btnStartCamera').addEventListener('click', async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast('Tu navegador no permite cámara en vivo. Usa "Subir foto".');
+        return;
+      }
+      try {
+        activeStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+        cameraStream.srcObject = activeStream;
+        cameraStream.classList.remove('hidden');
+        cameraOverlay.classList.remove('hidden');
+        previewImage.classList.add('hidden');
+        emptyState.classList.add('hidden');
+      } catch (err) {
+        showToast('Permiso de cámara denegado o no disponible. Usa "Subir foto".');
+      }
+    });
+
+    function stopCamera() {
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        activeStream = null;
+      }
+      cameraStream.classList.add('hidden');
+      cameraOverlay.classList.add('hidden');
+    }
+
+    document.getElementById('btnStopCamera').addEventListener('click', () => {
+      stopCamera();
+      if (previewImage.classList.contains('hidden')) {
+        emptyState.classList.remove('hidden');
+      }
+    });
+
+    document.getElementById('btnCaptureFrame').addEventListener('click', () => {
+      if (!activeStream) return;
+      captureCanvas.width = cameraStream.videoWidth || 320;
+      captureCanvas.height = cameraStream.videoHeight || 320;
+      const ctx = captureCanvas.getContext('2d');
+      ctx.drawImage(cameraStream, 0, 0, captureCanvas.width, captureCanvas.height);
+      const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.92);
+      stopCamera();
+      loadAndClassifyImage(dataUrl);
+    });
+
+    // File Upload / Native Mobile Camera
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      stopCamera();
+      const reader = new FileReader();
+      reader.onload = (ev) => loadAndClassifyImage(ev.target.result);
+      reader.readAsDataURL(file);
+    });
+
+    function loadAndClassifyImage(src) {
+      previewImage.onload = () => classifyImageElement(previewImage);
+      previewImage.src = src;
+      previewImage.classList.remove('hidden');
+      emptyState.classList.add('hidden');
+    }
+
+    async function classifyImageElement(imgEl) {
+      if (!tfModel) {
+        await loadInternalModel();
+      }
+      if (!tfModel) {
+        resultCard.classList.add('hidden');
+        showToast(modelLoadError || 'No se pudo cargar ./tfjs_model/model.json.');
+        return;
+      }
+
+      const probs = tf.tidy(() => {
+        const tensor = tf.browser.fromPixels(imgEl)
+          .resizeBilinear([160, 160])
+          .toFloat()
+          .expandDims(0);
+        return tfModel.predict(tensor).dataSync();
+      });
+
+      const ranked = Array.from(probs)
+        .map((p, idx) => ({ name: CLASS_NAMES[idx], prob: p }))
+        .sort((a, b) => b.prob - a.prob);
+
+      renderPrediction(ranked.slice(0, 3));
+    }
+
+    function renderPrediction(top3) {
+      const best = parseClassName(top3[0].name);
+      const confPct = (top3[0].prob * 100).toFixed(1);
+
+      const healthBadge = document.getElementById('healthBadge');
+      if (best.isHealthy) {
+        healthBadge.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold mb-1.5 bg-emerald-100 text-emerald-800';
+        healthBadge.textContent = 'Hoja sana';
+      } else {
+        healthBadge.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold mb-1.5 bg-amber-100 text-amber-800';
+        healthBadge.textContent = 'Hoja enferma';
+      }
+
+      document.getElementById('topSpecies').textContent = best.species;
+      document.getElementById('topCode').textContent = `Código de clase: ${best.code}`;
+      document.getElementById('topConfidence').textContent = `${confPct}%`;
+
+      const top3List = document.getElementById('top3List');
+      top3List.innerHTML = top3.map((item, idx) => {
+        const pct = (item.prob * 100).toFixed(1);
+        const barColor = idx === 0 ? 'bg-emerald-600' : 'bg-slate-400';
+        return `
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs">
+              <span class="font-medium text-slate-700 truncate pr-2">${item.name}</span>
+              <span class="font-semibold text-slate-800">${pct}%</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div class="h-full ${barColor} rounded-full" style="width: ${Math.min(100, pct)}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      resultCard.classList.remove('hidden');
+
+      // Save to session history
+      historyItems.unshift({
+        name: best.fullName,
+        conf: confPct,
+        isHealthy: best.isHealthy,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+      if (historyItems.length > 15) historyItems.pop();
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const container = document.getElementById('historyList');
+      if (historyItems.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400 italic">Aún no hay clasificaciones en esta sesión.</p>';
+        return;
+      }
+      container.innerHTML = historyItems.map(item => `
+        <div class="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 bg-white">
+          <div class="min-w-0 pr-2">
+            <p class="text-xs font-semibold text-slate-800 truncate">${item.name}</p>
+            <p class="text-[11px] text-slate-400">${item.time}</p>
+          </div>
+          <span class="text-xs font-bold ${item.isHealthy ? 'text-emerald-600' : 'text-amber-600'}">${item.conf}%</span>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('btnClearHistory').addEventListener('click', () => {
+      historyItems.length = 0;
+      renderHistory();
+    });
+
+    function renderClassesList() {
+      const container = document.getElementById('classesList');
+      const filtered = CLASS_NAMES.filter(name => {
+        if (currentFilter === 'healthy') return name.toLowerCase().includes('healthy');
+        if (currentFilter === 'diseased') return name.toLowerCase().includes('diseased');
+        return true;
+      });
+      container.innerHTML = filtered.map(name => {
+        const parsed = parseClassName(name);
+        return `
+          <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
+            <span class="text-xs font-medium text-slate-700">${parsed.species} <span class="text-slate-400">(${parsed.code})</span></span>
+            <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${parsed.isHealthy ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">
+              ${parsed.isHealthy ? 'Sana' : 'Enferma'}
+            </span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.filter;
+        document.querySelectorAll('.filter-btn').forEach(b => {
+          const active = b.dataset.filter === currentFilter;
+          b.className = `filter-btn px-2 py-1 rounded-lg text-[11px] font-semibold ${active ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`;
+        });
+        renderClassesList();
+      });
+    });
+
+    // Init
+    loadInternalModel();
+    renderClassesList();
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>
